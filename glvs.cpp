@@ -9,6 +9,10 @@
 
 using namespace rapidxml;
 
+#if defined(_MSC_VER)
+	#define stricmp		_stricmp
+#endif
+
 xml_node<>* glv_registry;
 xml_node<>* glv_extensions;
 xml_node<>* glv_commands;
@@ -54,7 +58,7 @@ xml_node<>* find_action (const char* name, const char* verb) {
     while (action != NULL) {
       xml_node<>* entry = action->first_node ();
       while (entry != NULL) {
-        if (! strcmp (entry->first_attribute ("name")->value (), name)) {
+        if (! stricmp (entry->first_attribute ("name")->value (), name)) {
           return entry->parent ()->parent ();
         }
         entry = entry->next_sibling ();
@@ -75,7 +79,7 @@ xml_node<>* find_next_action (const char* name, xml_node<>* feature, const char*
     while (action != NULL) {
       xml_node<>* entry = action->first_node ();
       while (entry != NULL) {
-        if (! strcmp (entry->first_attribute ("name")->value (), name)) {
+        if (! stricmp (entry->first_attribute ("name")->value (), name)) {
           return entry->parent ()->parent ();
         }
         entry = entry->next_sibling ();
@@ -98,7 +102,7 @@ xml_node<>* find_ext_req (const char* name) {
     while (require != NULL) {
       xml_node<>* entry = require->first_node ();
       while (entry != NULL) {
-        if (! strcmp (entry->first_attribute ("name")->value (), name)) {
+        if (! stricmp (entry->first_attribute ("name")->value (), name)) {
           return entry->parent ()->parent ();
         }
         entry = entry->next_sibling ();
@@ -119,7 +123,7 @@ xml_node<>* find_command(const char* name)
 
   while (command != NULL) {
     xml_node<>* command_name = command->first_node ("proto")->first_node ("name");
-    if (! strcmp (command_name->value (), name))
+    if (! stricmp (command_name->value (), name))
       return command;
     command = command->next_sibling ("command");
   }
@@ -151,6 +155,12 @@ int main (const int argc, const char** argv)
 
   std::ifstream     xml_file ("gl.xml");
   std::stringstream xml_buffer;
+
+  if(xml_file.is_open() == false)
+  {
+	  printf("Can't open 'gl.xml'");
+	  return -1;
+  }
 
   xml_buffer << xml_file.rdbuf ();
   xml_file.close ();
