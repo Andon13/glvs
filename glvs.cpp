@@ -1,3 +1,8 @@
+// Microsoft Visual C++ Security Workarounds
+#if defined (_MSC_VER)
+# define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #include "rapidxml-1.13/rapidxml.hpp"
 
 #include <string>
@@ -6,6 +11,11 @@
 
 #include <cstdio>
 #include <cstring>
+
+// Microsoft Visual C++ POSIX Warning Workarounds
+#if defined (_MSC_VER)
+# define stricmp _stricmp
+#endif
 
 using namespace rapidxml;
 
@@ -21,7 +31,7 @@ xml_node<>* find_enum (const char* name)
   while (enum_group != NULL) {
     xml_node<>* enum_entry = enum_group->first_node ("enum");
     while (enum_entry != NULL) {
-      if (! stricmp (enum_entry->first_attribute ("name")->value (), name)) {
+      if (! strcmp (enum_entry->first_attribute ("name")->value (), name)) {
         return enum_entry;
       }
       enum_entry = enum_entry->next_sibling ("enum");
@@ -37,6 +47,7 @@ xml_node<>* find_next_enum (xml_node<>* enum_node)
 {
   xml_node<>* enum_entry = enum_node->next_sibling ("enum");
   while (enum_entry != NULL) {
+    // Case insensitive since we are really comparing hexadecimal numbers (e.g. 0xF00D vs 0xf00d) and not strings
     if (! stricmp (enum_entry->first_attribute ("value")->value (), enum_node->first_attribute ("value")->value ())) {
       return enum_entry;
     }
@@ -134,7 +145,7 @@ xml_node<>* find_next_command_alias (xml_node<>* command_node, xml_node<>* curre
   while (command != NULL) {
     xml_node<>* alias = command->first_node ("alias");
     if (alias != NULL) {
-      if (! stricmp (alias->first_attribute ("name")->value (), command_node->first_node ("proto")->first_node ("name")->value ())) {
+      if (! strcmp (alias->first_attribute ("name")->value (), command_node->first_node ("proto")->first_node ("name")->value ())) {
         return command;
       }
     }
@@ -151,6 +162,11 @@ int main (const int argc, const char** argv)
 
   std::ifstream     xml_file ("gl.xml");
   std::stringstream xml_buffer;
+
+  if (! xml_file.is_open ()) {
+    printf (" @ ERROR: Cannot open 'gl.xml'\n");
+    return -2;
+  }
 
   xml_buffer << xml_file.rdbuf ();
   xml_file.close ();
@@ -263,14 +279,14 @@ int main (const int argc, const char** argv)
     const char* desc  [] = { "Core in", "Deprecated in", "Removed in" };
 
     for (int i = 0; i < sizeof (verbs) / sizeof (const char *); i++) {
-      xml_node<>* enum_node = find_action (name, verbs [i]);
+      xml_node<>* node = find_action (name, verbs [i]);
 
-      while (enum_node != NULL) {
+      while (node != NULL) {
         printf ("  * %-15s %24s    (%5s %2.1f)\n", desc [i],
-                                                   enum_node->first_attribute ("name")->value   (),
-                                                   enum_node->first_attribute ("api")->value    (),
-                                             atof (enum_node->first_attribute ("number")->value ()));
-        enum_node = find_next_action (name, enum_node, verbs [i]);
+                                                   node->first_attribute ("name")->value   (),
+                                                   node->first_attribute ("api")->value    (),
+                                             atof (node->first_attribute ("number")->value ()));
+        node = find_next_action (name, node, verbs [i]);
       }
     }
 
@@ -280,9 +296,9 @@ int main (const int argc, const char** argv)
     while (enum_alias != NULL) {
       printf (" >> Enum Alias: %s <<\n", enum_alias->first_attribute ("name")->value ());
 
-      xml_node<>* enum_extension = find_ext_req (enum_alias->first_attribute ("name")->value ());
-      if (enum_extension != NULL)
-        printf ("  * Provided by %s (%s)\n\n", enum_extension->first_attribute ("name")->value (), enum_extension->first_attribute ("supported")->value ());
+      xml_node<>* extension = find_ext_req (enum_alias->first_attribute ("name")->value ());
+      if (extension != NULL)
+        printf ("  * Provided by %s (%s)\n\n", extension->first_attribute ("name")->value (), extension->first_attribute ("supported")->value ());
       enum_alias = find_next_enum (enum_alias);
     }
   }
