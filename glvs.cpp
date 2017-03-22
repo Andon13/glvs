@@ -1,3 +1,8 @@
+// Microsoft Visual C++ Security Workarounds
+#if defined (_MSC_VER)
+# define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #include "rapidxml-1.13/rapidxml.hpp"
 
 #include <string>
@@ -7,11 +12,13 @@
 #include <cstdio>
 #include <cstring>
 
-using namespace rapidxml;
-
+// Microsoft Visual C++ POSIX Warning Workarounds
 #if defined(_MSC_VER)
-	#define stricmp		_stricmp
+    #define stricmp     _stricmp
+    #define strnicmp    _strnicmp
 #endif
+
+using namespace rapidxml;
 
 xml_node<>* glv_registry;
 xml_node<>* glv_extensions;
@@ -158,8 +165,20 @@ int main (const int argc, const char** argv)
 
   if(xml_file.is_open() == false)
   {
-	  printf("Can't open 'gl.xml'");
-	  return -1;
+    printf (" @ ERROR: Cannot open 'gl.xml'\n");
+    return -2;
+  }
+
+  char          name [128] = {0};
+  const char    *silent="-silent";
+  bool          showInfo = true;
+
+  for(int arg=1; arg<argc; ++arg)
+  {
+      if(strnicmp(argv[arg], silent, strlen(silent)) == 0)
+        showInfo = false;
+      else
+        strncpy(name, argv[arg], 128);
   }
 
   xml_buffer << xml_file.rdbuf ();
@@ -174,19 +193,24 @@ int main (const int argc, const char** argv)
   glv_features   = glv_registry->first_node ("feature");
   glv_enums      = glv_registry->first_node ("enums");
 
-  xml_node<>* feature = glv_features;
-  while (feature != NULL) {
-    printf ("Feature: [%5s]   %24s   (%2.1f)\n", feature->first_attribute ("api")->value    (),
-                                                 feature->first_attribute ("name")->value   (),
-                                           atof (feature->first_attribute ("number")->value ()));
-    feature = feature->next_sibling ("feature");
+  if(showInfo)
+  {
+    xml_node<>* feature = glv_features;
+    while (feature != NULL) {
+      printf ("Feature: [%5s]   %24s   (%2.1f)\n", feature->first_attribute ("api")->value    (),
+                                                   feature->first_attribute ("name")->value   (),
+                                             atof (feature->first_attribute ("number")->value ()));
+      feature = feature->next_sibling ("feature");
+    }
   }
 
   printf ("\n");
 
-  printf ("Enter OpenGL name to search for: ");
-  char name [128];
-  scanf ("%s", name);
+  if(name[0] == 0)
+  {
+    printf ("Enter OpenGL name to search for: ");
+    scanf ("%s", name);
+  }
 
   xml_node<>* command_node = find_command (name);
   xml_node<>* enum_node    = find_enum    (name);
@@ -230,7 +254,7 @@ int main (const int argc, const char** argv)
     const char* verbs [] = { "require", "deprecate",     "remove"     };
     const char* desc  [] = { "Core in", "Deprecated in", "Removed in" };
 
-    for (int i = 0; i < sizeof (verbs) / sizeof (const char *); i++) {
+    for (size_t i = 0; i < sizeof (verbs) / sizeof (const char *); i++) {
       xml_node<>* command = find_action (name, verbs [i]);
 
       while (command != NULL) {
@@ -246,13 +270,16 @@ int main (const int argc, const char** argv)
     if (command_alias != NULL)
       printf ("\n");
 
-    while (command_alias != NULL) {
-      printf (" >> Command Alias: %s <<\n", command_alias->first_node ("proto")->first_node ("name")->value ());
+    if (command_alias != NULL) {
+      while (command_alias != NULL) {
+        printf (" >> Command Alias: %s ", command_alias->first_node ("proto")->first_node ("name")->value ());
 
-      xml_node<>* command_extension = find_ext_req (command_alias->first_node ("proto")->first_node ("name")->value ());
-      if (command_extension != NULL)
-        printf ("  * Provided by %s (%s)\n\n", command_extension->first_attribute ("name")->value (), command_extension->first_attribute ("supported")->value ());
-      command_alias = find_next_command_alias (command_node, command_alias);
+        xml_node<>* command_extension = find_ext_req (command_alias->first_node ("proto")->first_node ("name")->value ());
+        if (command_extension != NULL)
+          printf ("\tProvided by %s (%s)\n\n", command_extension->first_attribute ("name")->value (), command_extension->first_attribute ("supported")->value ());
+        command_alias = find_next_command_alias (command_node, command_alias);
+      }
+      printf ("\n");
     }
   }
 
@@ -261,7 +288,7 @@ int main (const int argc, const char** argv)
     printf ("--------------------------------\n");
 
     const long value = strtol (enum_node->first_attribute ("value")->value   (), NULL, 16);
-    printf(" >> Enum:   %s is 0x%04X\n\n", enum_node->first_attribute ("name")->value (), value);
+    printf(" >> Enum:   %s is 0x%04X\n\n", enum_node->first_attribute ("name")->value (), size_t(value));
 
     // For non-core tokens, find the extension
     xml_node<>* enum_core = find_action (name, "require");
@@ -272,28 +299,31 @@ int main (const int argc, const char** argv)
     const char* verbs [] = { "require", "deprecate",     "remove"     };
     const char* desc  [] = { "Core in", "Deprecated in", "Removed in" };
 
-    for (int i = 0; i < sizeof (verbs) / sizeof (const char *); i++) {
-      xml_node<>* enum_node = find_action (name, verbs [i]);
+    for (size_t i = 0; i < sizeof (verbs) / sizeof (const char *); i++) {
+      xml_node<>* node = find_action (name, verbs [i]);
 
-      while (enum_node != NULL) {
+      while (node != NULL) {
         printf ("  * %-15s %24s    (%5s %2.1f)\n", desc [i],
-                                                   enum_node->first_attribute ("name")->value   (),
-                                                   enum_node->first_attribute ("api")->value    (),
-                                             atof (enum_node->first_attribute ("number")->value ()));
-        enum_node = find_next_action (name, enum_node, verbs [i]);
+                                                   node->first_attribute ("name")->value   (),
+                                                   node->first_attribute ("api")->value    (),
+                                             atof (node->first_attribute ("number")->value ()));
+        node = find_next_action (name, node, verbs [i]);
       }
     }
 
     printf ("\n");
 
     xml_node<>* enum_alias = find_next_enum (enum_node);
-    while (enum_alias != NULL) {
-      printf (" >> Enum Alias: %s <<\n", enum_alias->first_attribute ("name")->value ());
+    if (enum_alias != NULL) {
+      while (enum_alias != NULL) {
+        printf (" >> Enum Alias: %s ", enum_alias->first_attribute ("name")->value ());
 
-      xml_node<>* enum_extension = find_ext_req (enum_alias->first_attribute ("name")->value ());
-      if (enum_extension != NULL)
-        printf ("  * Provided by %s (%s)\n\n", enum_extension->first_attribute ("name")->value (), enum_extension->first_attribute ("supported")->value ());
-      enum_alias = find_next_enum (enum_alias);
+        xml_node<>* extension = find_ext_req (enum_alias->first_attribute ("name")->value ());
+        if (extension != NULL)
+          printf ("\tProvided by %s (%s)\n", extension->first_attribute ("name")->value (), extension->first_attribute ("supported")->value ());
+        enum_alias = find_next_enum (enum_alias);
+      }
+      printf ("\n");
     }
   }
 
