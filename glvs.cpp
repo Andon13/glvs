@@ -23,23 +23,55 @@
 #endif
 
 //-------------------------------------
+using namespace rapidxml;
+using std::vector;
+using std::string;
+
+//-------------------------------------
 struct InsensitiveCompare {
-    bool operator() (const std::string &a, const std::string &b) const {
+    bool operator() (const string &a, const string &b) const {
         return stricmp(a.c_str(), b.c_str()) < 0;
     }
 };
 
 //-------------------------------------
-using namespace rapidxml;
-using std::vector;
-using std::string;
-typedef std::set<string, InsensitiveCompare>    string_set;
+struct EnumCompare {
+    bool operator() (const std::pair<string, uint32_t> &a, const std::pair<string, uint32_t> &b) const {
+        return stricmp(a.first.c_str(), b.first.c_str()) < 0;
+    }
+};
 
+//-------------------------------------
+const char *ws = " \t\n\r\f\v";
+
+// Trim from end of string (right)
+inline string 
+rtrim(string str, const char *t = ws) {
+    str.erase(str.find_last_not_of(t) + 1);
+    return str;
+}
+
+// Trim from beginning of string (left)
+inline string 
+ltrim(string str, const char *t = ws) {
+    str.erase(0, str.find_first_not_of(t));
+    return str;
+}
+
+// Trim from both ends of string (right then left)
+inline string 
+trim(string str, const char *t = ws) {
+    return ltrim(rtrim(str, t), t);
+}
+
+//-------------------------------------
+using string_set = std::set<string, InsensitiveCompare>;
+using enum_set   = std::set<std::pair<string, uint32_t>, EnumCompare>;
 
 //-------------------------------------
 xml_node<> *glv_registry;
 xml_node<> *glv_types;
-xml_node<> *glv_groups; // deprecated
+xml_node<> *glv_groups;     // deprecated
 xml_node<> *glv_enums;
 xml_node<> *glv_commands;
 xml_node<> *glv_features;
@@ -53,7 +85,7 @@ find_enum(const char* name) {
     while (enum_group != nullptr) {
         xml_node<> *enum_entry = enum_group->first_node("enum");
         while (enum_entry != nullptr) {
-            if (! stricmp(enum_entry->first_attribute("name")->value(), name)) {
+            if (stricmp(enum_entry->first_attribute("name")->value(), name) == 0) {
                 return enum_entry;
             }
             enum_entry = enum_entry->next_sibling("enum");
@@ -275,7 +307,7 @@ listGroups() {
     string_set groups;
 
     find_groups(groups);
-    for (const std::string &group : groups) {
+    for (const string &group : groups) {
         printf("%s\n", group.c_str());
     }
 }
@@ -427,31 +459,64 @@ find_aliases(xml_node<> *command_node, string_set &aliases) {
 }
 
 //-------------------------------------
+bool
+exists_value(const enum_set &set, uint32_t value) {
+    for(const auto &p : set) {
+        if(p.second == value) {
+            return true;
+        }
+    }
+    return false;
+}
+
+//-------------------------------------
+void
+find_enum_aliases(enum_set &set) {
+    xml_node<> *enum_group = glv_enums;
+
+    while (enum_group != nullptr) {
+        xml_node<> *enum_entry = enum_group->first_node("enum");
+        while (enum_entry != nullptr) {
+            const char *enum_value = enum_entry->first_attribute("value")->value();
+            uint32_t    value      = strtol(enum_value, nullptr, 16);
+            if(exists_value(set, value)) {
+                const char *enum_name = enum_entry->first_attribute("name")->value();
+                set.insert({enum_name, value});
+            }
+            enum_entry = enum_entry->next_sibling("enum");
+        }
+        enum_group = enum_group->next_sibling("enums");
+    }
+}
+//-------------------------------------
 void 
 print_command_origin(const char *name) {
     static const char *verbs[] = { "require", "deprecate",     "remove" };
     static const char *desc[]  = { "Core in", "Deprecated in", "Removed in" };
 
-    xml_node<> *command_extension = find_ext_req(name);
-    if (command_extension != nullptr) {
-        printf("  [ Provided by %s (%s)", command_extension->first_attribute("name")->value(),
-                                           command_extension->first_attribute("supported")->value());
-    }
-    else {
-        for (size_t i = 0; i < sizeof(verbs) / sizeof(const char *); i++) {
-            bool first = true;
-            xml_node<> *command = find_action(name, verbs[i]);
-            while (command != nullptr) {
-                printf("%s%s (%s %2.1f)", first ? "  [ " : ",",
-                                          first ? desc[i] : "",
-                                          command->first_attribute("api")->value(),
-                                          atof(command->first_attribute("number")->value()));
+    bool foundL1 = false;
+    for (size_t i = 0; i < sizeof(verbs) / sizeof(const char *); i++) {
+        bool foundL2 = false;
+        xml_node<> *command = find_action(name, verbs[i]);
+        while (command != nullptr) {
+            printf("%s%s (%s %2.1f)", foundL1 ? "," : "  // [ ",
+                                      foundL2 ? "" : desc[i],
+                                      command->first_attribute("api")->value(),
+                                      atof(command->first_attribute("number")->value()));
 
-                command = find_next_action(name, command, verbs[0]);
-                first = false;
-            }
+            command = find_next_action(name, command, verbs[0]);
+            foundL1 = true;
+            foundL2 = true;
         }
     }
+
+    xml_node<> *command_extension = find_ext_req(name);
+    if (command_extension != nullptr) {
+        printf("%sProvided by %s (%s)", foundL1 ? ", " : "  // [ ",
+                                        command_extension->first_attribute("name")->value(),
+                                        command_extension->first_attribute("supported")->value());
+    }
+
     printf(" ]\n");
 }
 
@@ -462,7 +527,7 @@ print_enum_origin(const char *name) {
     static const char *desc[]  = { "Core in", "Deprecated in", "Removed in" };
 
     bool foundL1 = false;
-    bool       foundL2 = false;
+    bool foundL2 = false;
     for (size_t i = 0; i < sizeof(verbs) / sizeof(const char *); i++) {
         bool       foundL3 = false;
         xml_node<> *node = find_action(name, verbs[i]);
@@ -513,7 +578,7 @@ main(const int argc, const char** argv) {
     xml_buffer << xml_file.rdbuf();
     xml_file.close();
 
-    std::string xml_str(xml_buffer.str());
+    string xml_str(xml_buffer.str());
     glv_xml.parse <0>(&xml_str[0]);
 
     glv_registry   = glv_xml.first_node();
@@ -591,11 +656,14 @@ main(const int argc, const char** argv) {
         xml_node<> *param = command_node->first_node("param");
         if (param != nullptr) {
             while (param != nullptr) {
-                xml_node<> *ptype = param->first_node("ptype");
-                if (ptype != nullptr)
-                    printf("%s ", ptype->value());
-                printf("%s%s", param->value(),
-                               param->first_node("name")->value());
+                xml_node<> *node = param->first_node();
+                while(node != nullptr) {
+                    printf("%s", trim(node->value()).c_str());
+                    node = node->next_sibling();
+                    if(node != nullptr)
+                        printf(" ");
+                }
+
                 param = param->next_sibling("param");
 
                 if (param != nullptr)
@@ -605,7 +673,7 @@ main(const int argc, const char** argv) {
         else {
             //printf("void");
         }
-        printf(")");
+        printf(");");
 
         print_command_origin(name);
         
@@ -655,7 +723,7 @@ main(const int argc, const char** argv) {
             enum_node = enum_node->previous_sibling();
         }
         while (enum_node != nullptr) {
-            xml_attribute<> *attr_name = enum_node->first_attribute("name");
+            xml_attribute<> *attr_name  = enum_node->first_attribute("name");
             xml_attribute<> *attr_value = enum_node->first_attribute("value");
             if (attr_name != nullptr && attr_value != nullptr) {
                 const long value_aux = strtol(attr_value->value(), nullptr, 16);
@@ -696,23 +764,32 @@ main(const int argc, const char** argv) {
         if (groups.find(name) != groups.end()) {
             xml_node<> *node = glv_enums;
 
+            enum_set group;
+
             while (node != nullptr) {
                 xml_node<> *enum_entry = node->first_node("enum");
                 while (enum_entry != nullptr) {
                     xml_attribute<> *attr = enum_entry->first_attribute("group");
                     if (attr != nullptr) {
                         if (string(strlwr(attr->value())).find(strlwr(name)) != string::npos) {
-                            printf("%s = %s, //", enum_entry->first_attribute("name")->value(), enum_entry->first_attribute("value")->value());
-                            print_enum_origin(enum_entry->first_attribute("name")->value());
+                            const char *enum_name  = enum_entry->first_attribute("name")->value();
+                            const char *enum_value = enum_entry->first_attribute("value")->value();
+                            uint32_t    value      = strtol(enum_value, nullptr, 16);
+                            group.insert({enum_name, value});
                         }
                     }
                     enum_entry = enum_entry->next_sibling("enum");
                 }
                 node = node->next_sibling("enums");
             }
+            find_enum_aliases(group);
+            for(const auto &p : group) {
+                printf("%-48s = 0x%04X, //", p.first.c_str(), p.second);
+                print_enum_origin(p.first.c_str());
+            }
         }
         else{
-            printf(" @ ERROR: '%s' Not Found In GL Registry!\n", name);
+            fprintf(stderr, " @ ERROR: '%s' Not Found In GL Registry!\n", name);
             return -1;
         }
     }
