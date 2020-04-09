@@ -842,11 +842,14 @@ main(const int argc, const char** argv) {
                 print_enum_origin(p.first.c_str());
                 groupa.erase(p);
             }
-            printf("\n// May contain false positives\n");
-            for (const auto &p : groupa) {
-                printf("%-48s = 0x%04X, //", p.first.c_str(), p.second);
-                print_enum_origin(p.first.c_str());
-                groupa.erase(p);
+
+            if(groupa.empty() == false) {
+                printf("\n// May contain false positives\n");
+                for (const auto &p : groupa) {
+                    printf("%-48s = 0x%04X, //", p.first.c_str(), p.second);
+                    print_enum_origin(p.first.c_str());
+                    groupa.erase(p);
+                }
             }
         }
         else{
