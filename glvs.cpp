@@ -28,6 +28,27 @@ using std::vector;
 using std::string;
 
 //-------------------------------------
+enum eListMode {
+    None,
+    Types,
+    Groups,
+    Enums,
+    Commands,
+    Features,
+    Extensions,
+};
+
+//-------------------------------------
+xml_node<> *glv_registry;
+xml_node<> *glv_types;
+xml_node<> *glv_groups;     // deprecated
+xml_node<> *glv_enums;
+xml_node<> *glv_commands;
+xml_node<> *glv_features;
+xml_node<> *glv_extensions;
+
+
+//-------------------------------------
 struct InsensitiveCompare {
     bool operator() (const string &a, const string &b) const {
         return stricmp(a.c_str(), b.c_str()) < 0;
@@ -42,40 +63,31 @@ struct EnumCompare {
 };
 
 //-------------------------------------
-const char *ws = " \t\n\r\f\v";
+using string_set = std::set<string, InsensitiveCompare>;
+using enum_set   = std::set<std::pair<string, uint32_t>, EnumCompare>;
+
+//-------------------------------------
+const char *white_space = " \t\n\r\f\v";
 
 // Trim from end of string (right)
 inline string 
-rtrim(string str, const char *t = ws) {
+rtrim(string str, const char *t = white_space) {
     str.erase(str.find_last_not_of(t) + 1);
     return str;
 }
 
 // Trim from beginning of string (left)
 inline string 
-ltrim(string str, const char *t = ws) {
+ltrim(string str, const char *t = white_space) {
     str.erase(0, str.find_first_not_of(t));
     return str;
 }
 
 // Trim from both ends of string (right then left)
 inline string 
-trim(string str, const char *t = ws) {
+trim(string str, const char *t = white_space) {
     return ltrim(rtrim(str, t), t);
 }
-
-//-------------------------------------
-using string_set = std::set<string, InsensitiveCompare>;
-using enum_set   = std::set<std::pair<string, uint32_t>, EnumCompare>;
-
-//-------------------------------------
-xml_node<> *glv_registry;
-xml_node<> *glv_types;
-xml_node<> *glv_groups;     // deprecated
-xml_node<> *glv_enums;
-xml_node<> *glv_commands;
-xml_node<> *glv_features;
-xml_node<> *glv_extensions;
 
 //-------------------------------------
 xml_node<> *
@@ -224,17 +236,6 @@ find_next_command_alias(xml_node<> *command_node, xml_node<> *current) {
     return find_next_command_alias(command_node->first_node("proto")->first_node("name")->value(), current);
 }
 
-//-------------------------------------
-enum eListMode {
-    None,
-    Types,
-    Groups,
-    Enums,
-    Commands,
-    Features,
-    Extensions,
-};
-
 //---------------------------------
 void
 set_insert(string_set &set, const string &str, const string &delim) {
@@ -250,6 +251,53 @@ set_insert(string_set &set, const string &str, const string &delim) {
             set.insert(token);
         prev = pos + delim.length();
     } while (pos < str.length() && prev < str.length());
+}
+
+// TODO: Refactor this and get strcmp or stricmp as a parameter
+//---------------------------------
+bool
+find_in_group(const string &src, const string &delim, const string &what) {
+    string token;
+    size_t prev = 0, pos = 0;
+
+    do {
+        pos = src.find(delim, prev);
+        if (pos == string::npos)
+            pos = src.length();
+        token = src.substr(prev, pos - prev);
+        if (!token.empty()) {
+            token = trim(token);
+            if (strcmp(token.c_str(), what.c_str()) == 0) {
+                return true;
+            }
+        }
+        prev = pos + delim.length();
+    } while (pos < src.length() && prev < src.length());
+
+    return false;
+}
+
+//---------------------------------
+bool
+find_in_groupi(const string &src, const string &delim, const string &what) {
+    string token;
+    size_t prev = 0, pos = 0;
+
+    do {
+        pos = src.find(delim, prev);
+        if (pos == string::npos)
+            pos = src.length();
+        token = src.substr(prev, pos - prev);
+        if (!token.empty()) {
+            token = trim(token);
+            if (stricmp(token.c_str(), what.c_str()) == 0) {
+                return true;
+            }
+        }
+        prev = pos + delim.length();
+    } while (pos < src.length() && prev < src.length());
+
+    return false;
 }
 
 //---------------------------------
@@ -515,9 +563,10 @@ print_command_origin(const char *name) {
         printf("%sProvided by %s (%s)", foundL1 ? ", " : "  // [ ",
                                         command_extension->first_attribute("name")->value(),
                                         command_extension->first_attribute("supported")->value());
+        foundL1 = true;
     }
 
-    printf(" ]\n");
+    printf("%s\n", foundL1 ? " ]" : "");
 }
 
 //-------------------------------------
@@ -548,11 +597,14 @@ print_enum_origin(const char *name) {
     }
 
     xml_node<> *enum_extension = find_ext_req(name);
-    if (enum_extension != nullptr)
+    if (enum_extension != nullptr) {
         printf("%sProvided by %s (%s)", foundL1 ? ", " : "  [ ",
                enum_extension->first_attribute("name")->value(),
                enum_extension->first_attribute("supported")->value());
-    printf(" ]\n");
+        foundL1 = true;
+    }
+
+    printf("%s\n", foundL1 ? " ]" : "");
 }
 
 //-------------------------------------
@@ -771,7 +823,8 @@ main(const int argc, const char** argv) {
                 while (enum_entry != nullptr) {
                     xml_attribute<> *attr = enum_entry->first_attribute("group");
                     if (attr != nullptr) {
-                        if (string(strlwr(attr->value())).find(strlwr(name)) != string::npos) {
+//                        if (find_in_groupi(attr->value(), ",", name)) {
+                        if(find_in_group(strlwr(attr->value()), ",", strlwr(name))) {
                             const char *enum_name  = enum_entry->first_attribute("name")->value();
                             const char *enum_value = enum_entry->first_attribute("value")->value();
                             uint32_t    value      = strtol(enum_value, nullptr, 16);
