@@ -816,7 +816,7 @@ main(const int argc, const char** argv) {
         if (groups.find(name) != groups.end()) {
             xml_node<> *node = glv_enums;
 
-            enum_set group;
+            enum_set group, groupa;
 
             while (node != nullptr) {
                 xml_node<> *enum_entry = node->first_node("enum");
@@ -835,10 +835,18 @@ main(const int argc, const char** argv) {
                 }
                 node = node->next_sibling("enums");
             }
-            find_enum_aliases(group);
+            groupa = group;
+            find_enum_aliases(groupa);
             for(const auto &p : group) {
                 printf("%-48s = 0x%04X, //", p.first.c_str(), p.second);
                 print_enum_origin(p.first.c_str());
+                groupa.erase(p);
+            }
+            printf("\n// May contain false positives\n");
+            for (const auto &p : groupa) {
+                printf("%-48s = 0x%04X, //", p.first.c_str(), p.second);
+                print_enum_origin(p.first.c_str());
+                groupa.erase(p);
             }
         }
         else{
